@@ -28,6 +28,7 @@
 Apache Seata(incubating) is a very mature distributed transaction framework, and is the de facto standard platform for distributed transaction technology in the Java field. Seata-go is the implementation version of go language in Seata multilingual ecosystem, which realizes the interoperability between Java and Go, so that Go developers can also use seata-go to realize distributed transactions. Please visit the [official website of Seata](https://seata.apache.org/) to view the quick start and documentation.
 
 The principle of seata-go is consistent with that of Seata-java, which is composed of TM, RM and TC. The functions of TC are reused in Java, and the functions of TM and RM have been connected with Seata-java.
+
 ### Distributed Transaction Problem in Microservices
 
 Let's imagine a traditional monolithic application. Its business is built up with 3 modules. They use a single local data source.
