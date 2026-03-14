@@ -23,6 +23,7 @@ import (
 	"database/sql/driver"
 
 	"seata.apache.org/seata-go/v2/pkg/datasource/sql/exec"
+	"seata.apache.org/seata-go/v2/pkg/datasource/sql/parser"
 	"seata.apache.org/seata-go/v2/pkg/datasource/sql/types"
 	"seata.apache.org/seata-go/v2/pkg/tm"
 	"seata.apache.org/seata-go/v2/pkg/util/log"
@@ -93,7 +94,12 @@ func (c *ATConn) QueryContext(ctx context.Context, query string, args []driver.N
 		}()
 	}
 
-	ret, err := c.createTxAndQueryIfNeeded(ctx, func() (types.ExecResult, error) {
+	requiresQueryTx, err := c.requiresQueryTx(query)
+	if err != nil {
+		return nil, err
+	}
+
+	execQuery := func() (types.ExecResult, error) {
 		executor, err := exec.BuildExecutor(c.res.dbType, c.txCtx.TransactionMode, query)
 		if err != nil {
 			return nil, err
@@ -120,11 +126,26 @@ func (c *ATConn) QueryContext(ctx context.Context, query string, args []driver.N
 			})
 
 		return ret, err
-	})
+	}
+
+	var ret types.ExecResult
+	if requiresQueryTx {
+		ret, err = c.createTxAndQueryIfNeeded(ctx, execQuery)
+	} else {
+		ret, err = execQuery()
+	}
 	if err != nil {
 		return nil, err
 	}
 	return ret.GetRows(), nil
+}
+
+func (c *ATConn) requiresQueryTx(query string) (bool, error) {
+	parseCtx, err := parser.DoParser(query)
+	if err != nil {
+		return false, err
+	}
+	return parseCtx.SQLType == types.SQLTypeSelectForUpdate, nil
 }
 
 // BeginTx

@@ -21,6 +21,7 @@ import (
 	"context"
 	"database/sql"
 	"database/sql/driver"
+	"io"
 	"sync/atomic"
 	"testing"
 
@@ -34,6 +35,31 @@ import (
 	"seata.apache.org/seata-go/v2/pkg/protocol/branch"
 	"seata.apache.org/seata-go/v2/pkg/tm"
 )
+
+type atQueryMockRows struct {
+	idx  int
+	data [][]interface{}
+}
+
+func (m *atQueryMockRows) Columns() []string {
+	return []string{"value"}
+}
+
+func (m *atQueryMockRows) Close() error {
+	return nil
+}
+
+func (m *atQueryMockRows) Next(dest []driver.Value) error {
+	if m.idx == len(m.data) {
+		return io.EOF
+	}
+
+	for i := 0; i < len(m.data[m.idx]) && i < len(dest); i++ {
+		dest[i] = m.data[m.idx][i]
+	}
+	m.idx++
+	return nil
+}
 
 func TestMain(m *testing.M) {
 	Init()
@@ -61,7 +87,7 @@ func initAtConnTestResource(t *testing.T) (*gomock.Controller, *sql.DB, *mockSQL
 		mockConn.EXPECT().BeginTx(gomock.Any(), gomock.Any()).AnyTimes().Return(mockTx, nil)
 		mockConn.EXPECT().QueryContext(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes().DoAndReturn(
 			func(ctx context.Context, query string, args []driver.NamedValue) (driver.Rows, error) {
-				rows := &mysqlMockRows{}
+				rows := &atQueryMockRows{}
 				rows.data = [][]interface{}{
 					{"8.0.29"},
 				}
@@ -149,6 +175,34 @@ func TestATConn_ExecContext(t *testing.T) {
 		assert.NoError(t, err)
 
 		assert.Equal(t, int32(0), atomic.LoadInt32(&comitCnt))
+	})
+}
+
+func TestATConn_QueryContext(t *testing.T) {
+	ctrl, db, _, ti := initAtConnTestResource(t)
+	defer func() {
+		ctrl.Finish()
+		db.Close()
+		CleanTxHooks()
+	}()
+
+	t.Run("global plain select should not create auto local tx", func(t *testing.T) {
+		ctx := tm.InitSeataContext(context.Background())
+		tm.SetXID(ctx, uuid.New().String())
+
+		var commitCnt int32
+		ti.beforeCommit = func(tx *Tx) error {
+			atomic.AddInt32(&commitCnt, 1)
+			return nil
+		}
+
+		rows, err := db.QueryContext(ctx, "SELECT 1")
+		assert.NoError(t, err)
+		assert.NotNil(t, rows)
+
+		err = rows.Close()
+		assert.NoError(t, err)
+		assert.Equal(t, int32(0), atomic.LoadInt32(&commitCnt))
 	})
 }
 
