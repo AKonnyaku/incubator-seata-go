@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"seata.apache.org/seata-go/v2/pkg/protocol/message"
+	"seata.apache.org/seata-go/v2/pkg/remoting/config"
 )
 
 func TestGettyRemoting_GetMessageFuture(t *testing.T) {
@@ -164,4 +165,38 @@ func TestGettyRemoting_RemoveMergedMessageFuture(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestGettyRemoting_ResolveSession_NoAvailableSession(t *testing.T) {
+	oldSessionManager := sessionManager
+	oldConfig := config.GetSeataConfig()
+	sessionManager = &SessionManager{sessionSize: 1}
+	config.InitConfig(&config.SeataConfig{LoadBalanceType: "XID"})
+	defer func() {
+		sessionManager = oldSessionManager
+		config.InitConfig(oldConfig)
+	}()
+
+	gettyRemoting := newGettyRemoting()
+	session, err := gettyRemoting.resolveSession(message.RpcMessage{ID: 1, Body: "message"}, nil)
+
+	assert.Nil(t, session)
+	assert.EqualError(t, err, "no available session")
+}
+
+func TestGettyRemoting_ResolveSession_NoSessionManager(t *testing.T) {
+	oldSessionManager := sessionManager
+	oldConfig := config.GetSeataConfig()
+	sessionManager = nil
+	config.InitConfig(nil)
+	defer func() {
+		sessionManager = oldSessionManager
+		config.InitConfig(oldConfig)
+	}()
+
+	gettyRemoting := newGettyRemoting()
+	session, err := gettyRemoting.resolveSession(message.RpcMessage{ID: 1, Body: "message"}, nil)
+
+	assert.Nil(t, session)
+	assert.EqualError(t, err, "no available session")
 }
